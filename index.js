@@ -36,7 +36,7 @@ const users = [
 
 // Middleware
 const corsOptions = {
-  origin: "http://52.62.40.136:8080/",
+  origin: 'http://localhost:5173',
   methods: "GET,POST,PUT,DELETE",
   allowedHeaders: "Content-Type,Authorization",
 };
