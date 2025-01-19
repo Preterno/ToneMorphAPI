@@ -203,31 +203,86 @@ app.post(
   handleFileUpload,
   async (req, res) => {
     const outputPath = path.join("processed", `${Date.now()}.mp4`);
+    let cleanupRequired = false;
 
     try {
-      await fs.mkdir("processed", { recursive: true });
+      console.log("Processing video file:", {
+        filepath: req.file?.filepath,
+        originalFilename: req.file?.originalFilename,
+        mimetype: req.file?.mimetype,
+        size: req.file?.size,
+      });
 
-      ffmpeg(req.file.filepath)
-        .videoFilter("colorchannelmixer=.3:.4:.3:0:.3:.4:.3:0:.3:.4:.3")
-        .outputOptions([
-          "-c:v libx264",
-          "-preset fast",
-          "-pix_fmt yuv420p",
-          "-movflags +faststart",
-        ])
-        .on("end", async () => {
-          res.download(outputPath, async () => {
-            await fs.unlink(req.file.filepath);
-            await fs.unlink(outputPath);
-          });
-        })
-        .on("error", async (err) => {
-          await fs.unlink(req.file.filepath).catch(() => {});
-          res.status(500).json({ error: err.message });
-        })
-        .save(outputPath);
+      if (!req.file?.filepath) {
+        throw new Error("No video file received");
+      }
+
+      await fs.access(req.file.filepath);
+
+      await fs.mkdir("processed", { recursive: true });
+      cleanupRequired = true;
+
+      return new Promise((resolve, reject) => {
+        ffmpeg(req.file.filepath)
+          .videoFilter("colorchannelmixer=.3:.4:.3:0:.3:.4:.3:0:.3:.4:.3")
+          .outputOptions([
+            "-c:v libx264",
+            "-preset fast",
+            "-pix_fmt yuv420p",
+            "-movflags +faststart",
+          ])
+          .on("start", (commandLine) => {
+            console.log("FFmpeg processing started:", commandLine);
+          })
+          .on("progress", (progress) => {
+            console.log("Processing: ", progress.percent, "% done");
+          })
+          .on("end", async () => {
+            console.log("FFmpeg processing completed");
+            try {
+              await fs.access(outputPath);
+
+              res.download(outputPath, async (err) => {
+                if (err) {
+                  console.error("Error sending file:", err);
+                  reject(err);
+                }
+                try {
+                  await fs.unlink(req.file.filepath);
+                  await fs.unlink(outputPath);
+                  console.log("Cleanup completed successfully");
+                } catch (cleanupError) {
+                  console.error("Cleanup error:", cleanupError);
+                }
+                resolve();
+              });
+            } catch (err) {
+              reject(new Error("Output file not found after processing"));
+            }
+          })
+          .on("error", (err) => {
+            console.error("FFmpeg error:", err);
+            reject(err);
+          })
+          .save(outputPath);
+      });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      console.error("Video processing error:", err);
+
+      if (cleanupRequired) {
+        try {
+          if (req.file?.filepath) await fs.unlink(req.file.filepath);
+          await fs.unlink(outputPath).catch(() => {});
+        } catch (cleanupErr) {
+          console.error("Cleanup error during error handling:", cleanupErr);
+        }
+      }
+
+      res.status(500).json({
+        error: "Video processing failed",
+        details: err.message,
+        code: err.code || "UNKNOWN",
+      });
     }
   }
 );
