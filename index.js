@@ -37,7 +37,7 @@ const users = [
 // Middleware
 const corsOptions = {
   origin: "https://tonemorph.netlify.app",
-  methods: "GET,POST,PUT,DELETE",
+  methods: "GET,POST,PUT,DELETE,OPTIONS",
   allowedHeaders: "Content-Type,Authorization",
 };
 app.use(cors(corsOptions));
